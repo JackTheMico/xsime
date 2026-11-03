@@ -160,7 +160,12 @@ struct SessionMonitor::Impl {
         const auto revision = c.revision;
         auto call = p.bus->createMethodCall(p.owner.c_str(), p.path, p.interface, "GetActive");
         c.query = call.callAsync(timeout, [this, i, revision](dbus::Message& msg) {
-            if (channels[i + 2].revision != revision || msg.isError() || msg.signature() != "b") return true;
+            if (channels[i + 2].revision != revision) return true;
+            if (msg.isError() || msg.signature() != "b") {
+                // GetActive unsupported: do not treat the saver as active.
+                Set(i + 2, false);
+                return true;
+            }
             bool value = true; msg >> value;
             if (msg) Set(i + 2, value);
             return true;
@@ -173,7 +178,13 @@ struct SessionMonitor::Impl {
         auto call = p.bus->createMethodCall(p.owner.c_str(), path.c_str(), properties, "Get");
         call << std::string(interface) << std::string(property);
         c.query = call.callAsync(timeout, [this, reason, revision](dbus::Message& msg) {
-            if (channels[reason].revision != revision || msg.isError() || msg.signature() != "v") return true;
+            if (channels[reason].revision != revision) return true;
+            if (msg.isError() || msg.signature() != "v") {
+                // Property unavailable: assume not blocked (system is awake,
+                // session is active and unlocked).
+                Set(reason, false);
+                return true;
+            }
             dbus::Variant value; msg >> value;
             if (msg && value.signature() == "b") Set(reason, reason == Inactive ? !value.dataAs<bool>() : value.dataAs<bool>());
             return true;
